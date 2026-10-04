@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Document Intelligence | Interactive Q&A</title>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          },
+          boxShadow: {
+            'glow': '0 0 25px -5px rgba(99, 102, 241, 0.35)',
+            'glow-emerald': '0 0 25px -5px rgba(16, 185, 129, 0.35)',
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Marked.js for Markdown Rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #090d16;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+
+    /* Markdown styling inside answers */
+    .prose-custom {
+      color: #e2e8f0;
+      line-height: 1.7;
+    }
+    .prose-custom p {
+      margin-bottom: 0.85rem;
+    }
+    .prose-custom p:last-child {
+      margin-bottom: 0;
+    }
+    .prose-custom strong {
+      color: #f8fafc;
+      font-weight: 600;
+    }
+    .prose-custom ul {
+      list-style-type: disc;
+      padding-left: 1.4rem;
+      margin-bottom: 0.85rem;
+    }
+    .prose-custom ol {
+      list-style-type: decimal;
+      padding-left: 1.4rem;
+      margin-bottom: 0.85rem;
+    }
+    .prose-custom li {
+      margin-bottom: 0.35rem;
+    }
+    .prose-custom code {
+      background-color: #0f172a;
+      border: 1px solid #334155;
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.375rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      color: #93c5fd;
+    }
+    .prose-custom pre code {
+      display: block;
+      padding: 0.85rem;
+      overflow-x: auto;
+      border-radius: 0.5rem;
+      background-color: #020617;
+      margin-bottom: 0.85rem;
+    }
+    .prose-custom blockquote {
+      border-left: 3px solid #6366f1;
+      padding-left: 0.85rem;
+      color: #94a3b8;
+      font-style: italic;
+      margin-bottom: 0.85rem;
+    }
+  </style>
+</head>
+
+<body class="h-full flex flex-col bg-slate-950 font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
+
+  <!-- TOP NAVBAR -->
+  <header class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-xl sticky top-0 z-40 transition-all">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+      
+      <!-- Brand & Status -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-violet-600 to-indigo-400 p-[1px] shadow-glow flex items-center justify-center">
+          <div class="w-full h-full bg-slate-950/90 rounded-[11px] flex items-center justify-center">
+            <i data-lucide="sparkles" class="w-5 h-5 text-indigo-400"></i>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-bold text-white tracking-tight">RAG Document Intelligence</h1>
+            <span class="hidden sm:inline-flex text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Scratch Engine</span>
+          </div>
+          <p class="text-xs text-slate-400 flex items-center gap-1.5">
+            <span id="status-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="status-text">Connected to FAISS Index</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Quick Settings / Controls -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        
+        <!-- Model Selector Dropdown -->
+        <div class="relative">
+          <select id="model-select" class="appearance-none bg-slate-900/90 hover:bg-slate-800/90 text-xs sm:text-sm font-medium text-slate-200 pl-3 pr-8 py-1.5 rounded-lg border border-slate-700/80 hover:border-slate-600 transition focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer">
+            <option value="gemini-3.8-flash" selected>Gemini 3.8 Flash (Fast & Smart)</option>
+            <option value="gemini-flash-latest">Gemini Flash Latest</option>
+            <option value="gpt-3.5-turbo">GPT-3.5 Turbo (OpenAI)</option>
+            <option value="gpt-4o">GPT-4o (OpenAI)</option>
+            <option value="ollama/llama3">Ollama Llama 3 (Local)</option>
+          </select>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+        </div>
+
+        <!-- Top-K Chunks Dropdown -->
+        <div class="relative hidden sm:block">
+          <select id="top-k-select" class="appearance-none bg-slate-900/90 hover:bg-slate-800/90 text-xs sm:text-sm font-medium text-slate-200 pl-3 pr-7 py-1.5 rounded-lg border border-slate-700/80 hover:border-slate-600 transition focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer" title="Number of context chunks to retrieve from FAISS">
+            <option value="2">Top 2 Chunks</option>
+            <option value="3" selected>Top 3 Chunks</option>
+            <option value="5">Top 5 Chunks</option>
+            <option value="7">Top 7 Chunks</option>
+          </select>
+          <i data-lucide="layers" class="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+        </div>
+
+        <!-- Clear Chat Button -->
+        <button id="clear-btn" title="Clear chat history" class="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800/70 rounded-lg transition border border-transparent hover:border-slate-700/60">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+        </button>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CHAT CONTAINER -->
+  <main class="flex-1 overflow-y-auto" id="chat-scroller">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col gap-6">
+
+      <!-- HERO / WELCOME STATE (hidden once messages exist) -->
+      <section id="welcome-panel" class="rounded-2xl border border-slate-800/90 bg-gradient-to-b from-slate-900/80 to-slate-900/30 p-6 sm:p-8 backdrop-blur-sm transition-all duration-300">
+        
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-slate-800/70">
+          <div>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mb-3">
+              <i data-lucide="database" class="w-3.5 h-3.5"></i>
+              Vector Store Active
+            </span>
+            <h2 class="text-xl sm:text-2xl font-bold text-white tracking-tight">Ask anything about your documents</h2>
+            <p class="text-sm text-slate-400 mt-1 max-w-xl">
+              Type your query below. Your documents are retrieved using semantic FAISS vector similarity and synthesized by the LLM with strict document-only grounding.
+            </p>
+          </div>
+          
+          <div class="flex items-center gap-4 bg-slate-950/60 border border-slate-800/80 rounded-xl px-4 py-3 shrink-0">
+            <div class="text-center">
+              <div id="stat-chunks" class="text-lg font-bold text-indigo-400 font-mono">588</div>
+              <div class="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Chunks</div>
+            </div>
+            <div class="w-[1px] h-8 bg-slate-800"></div>
+            <div class="text-center">
+              <div id="stat-docs" class="text-lg font-bold text-emerald-400 font-mono">3</div>
+              <div class="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Docs</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Indexed Document Tags -->
+        <div class="mt-5">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+            <i data-lucide="folder-check" class="w-3.5 h-3.5 text-indigo-400"></i>
+            Indexed Source Files
+          </div>
+          <div id="indexed-files-list" class="flex flex-wrap gap-2">
+            <span class="inline-flex items-center gap-1.5 text-xs text-slate-300 bg-slate-950/70 border border-slate-800 px-3 py-1.5 rounded-lg">
+              <i data-lucide="file-text" class="w-3.5 h-3.5 text-indigo-400"></i>
+              VendorHood - Blue Book Group A8 Final.pdf
+            </span>
+            <span class="inline-flex items-center gap-1.5 text-xs text-slate-300 bg-slate-950/70 border border-slate-800 px-3 py-1.5 rounded-lg">
+              <i data-lucide="file-text" class="w-3.5 h-3.5 text-indigo-400"></i>
+              Blue_Book_Final_Formatted.pdf
+            </span>
+            <span class="inline-flex items-center gap-1.5 text-xs text-slate-300 bg-slate-950/70 border border-slate-800 px-3 py-1.5 rounded-lg">
+              <i data-lucide="file-text" class="w-3.5 h-3.5 text-indigo-400"></i>
+              Blue_Book_Final_Formatted.docx
+            </span>
+          </div>
+        </div>
+
+        <!-- Suggested Prompt Chips -->
+        <div class="mt-6 pt-5 border-t border-slate-800/70">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <i data-lucide="lightbulb" class="w-3.5 h-3.5 text-amber-400"></i>
+            Click a question to try immediately
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button class="chip-btn text-left p-3 rounded-xl border border-slate-800/90 bg-slate-950/50 hover:bg-slate-800/60 hover:border-indigo-500/40 text-xs text-slate-300 hover:text-white transition flex items-center justify-between group">
+              <span>What is VendorHood and what problem does it solve?</span>
+              <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400 transition-transform group-hover:translate-x-0.5 shrink-0 ml-2"></i>
+            </button>
+            <button class="chip-btn text-left p-3 rounded-xl border border-slate-800/90 bg-slate-950/50 hover:bg-slate-800/60 hover:border-indigo-500/40 text-xs text-slate-300 hover:text-white transition flex items-center justify-between group">
+              <span>What are the key functional requirements and features?</span>
+              <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400 transition-transform group-hover:translate-x-0.5 shrink-0 ml-2"></i>
+            </button>
+            <button class="chip-btn text-left p-3 rounded-xl border border-slate-800/90 bg-slate-950/50 hover:bg-slate-800/60 hover:border-indigo-500/40 text-xs text-slate-300 hover:text-white transition flex items-center justify-between group">
+              <span>Summarize the main sections and architecture in the document</span>
+              <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400 transition-transform group-hover:translate-x-0.5 shrink-0 ml-2"></i>
+            </button>
+            <button class="chip-btn text-left p-3 rounded-xl border border-slate-800/90 bg-slate-950/50 hover:bg-slate-800/60 hover:border-indigo-500/40 text-xs text-slate-300 hover:text-white transition flex items-center justify-between group">
+              <span>What technologies, tools, and methodologies are proposed?</span>
+              <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400 transition-transform group-hover:translate-x-0.5 shrink-0 ml-2"></i>
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- MESSAGE LIST -->
+      <div id="messages-container" class="flex flex-col gap-6"></div>
+
+      <!-- ACTIVE LOADING INDICATOR -->
+      <div id="loading-indicator" class="hidden flex items-start gap-3.5 animate-fadeIn">
+        <div class="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center shrink-0 mt-0.5">
+          <i data-lucide="sparkles" class="w-4 h-4 text-indigo-400 animate-spin"></i>
+        </div>
+        <div class="flex-1 bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 sm:p-5 backdrop-blur-sm">
+          <div class="flex items-center gap-2.5 text-xs text-indigo-400 font-medium mb-3">
+            <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+            Searching FAISS vector index & generating grounded answer...
+          </div>
+          <div class="space-y-2">
+            <div class="h-3.5 bg-slate-800/70 rounded-full w-5/6 animate-pulse"></div>
+            <div class="h-3.5 bg-slate-800/50 rounded-full w-4/6 animate-pulse"></div>
+            <div class="h-3.5 bg-slate-800/30 rounded-full w-2/6 animate-pulse"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- QUERY INPUT PANEL (STICKY BOTTOM) -->
+  <footer class="border-t border-slate-800/80 bg-slate-900/80 backdrop-blur-xl p-4 sm:p-5">
+    <div class="max-w-4xl mx-auto">
+      
+      <form id="query-form" class="relative">
+        <div class="relative rounded-2xl border border-slate-700/80 bg-slate-950/90 shadow-2xl focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all duration-200">
+          
+          <textarea
+            id="query-input"
+            rows="2"
+            placeholder="Ask a question about your documents... (Press Enter to send, Shift+Enter for new line)"
+            class="w-full bg-transparent px-4 sm:px-5 pt-3.5 pb-12 text-sm sm:text-base text-slate-100 placeholder-slate-500 resize-none focus:outline-none"
+            autofocus
+          ></textarea>
+
+          <!-- Input Footer controls inside textarea box -->
+          <div class="absolute bottom-2.5 left-3 right-3 flex items-center justify-between gap-2 border-t border-slate-800/60 pt-2 text-xs">
+            
+            <div class="flex items-center gap-2 text-slate-500">
+              <span class="hidden sm:inline-flex items-center gap-1 font-mono text-[11px]">
+                <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Enter ↵</kbd> to ask
+              </span>
+              <span id="char-count" class="text-[11px] text-slate-500"></span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                id="clear-input-btn"
+                class="hidden px-2.5 py-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition"
+                title="Clear input"
+              >
+                Clear
+              </button>
+
+              <button
+                type="submit"
+                id="submit-btn"
+                class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl font-semibold text-xs sm:text-sm text-white bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-500 hover:to-violet-500 shadow-glow disabled:opacity-40 disabled:cursor-not-allowed transition transform active:scale-95"
+              >
+                <span>Ask Question</span>
+                <i data-lucide="send" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+
+          </div>
+
+        </div>
+      </form>
+
+      <div class="mt-2 text-center">
+        <p class="text-[11px] text-slate-500">
+          Grounded RAG Pipeline &middot; Powered by FAISS &amp; all-MiniLM-L6-v2 Embeddings &middot; No hallucinations
+        </p>
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- SCRIPT LOGIC -->
+  <script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+
+    // DOM Elements
+    const chatScroller = document.getElementById('chat-scroller');
+    const messagesContainer = document.getElementById('messages-container');
+    const welcomePanel = document.getElementById('welcome-panel');
+    const queryForm = document.getElementById('query-form');
+    const queryInput = document.getElementById('query-input');
+    const submitBtn = document.getElementById('submit-btn');
+    const clearInputBtn = document.getElementById('clear-input-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const modelSelect = document.getElementById('model-select');
+    const topKSelect = document.getElementById('top-k-select');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const statChunks = document.getElementById('stat-chunks');
+    const statDocs = document.getElementById('stat-docs');
+    const indexedFilesList = document.getElementById('indexed-files-list');
+
+    // Fetch initial backend status
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        
+        if (data.ready) {
+          statusDot.className = "w-2 h-2 rounded-full bg-emerald-400";
+          statusText.textContent = `Ready (${data.total_vectors} chunks)`;
+          statChunks.textContent = data.total_vectors || 588;
+          statDocs.textContent = data.documents?.length || 3;
+
+          if (data.documents && data.documents.length > 0) {
+            indexedFilesList.innerHTML = data.documents.map(doc => `
+              <span class="inline-flex items-center gap-1.5 text-xs text-slate-300 bg-slate-950/70 border border-slate-800 px-3 py-1.5 rounded-lg">
+                <i data-lucide="file-text" class="w-3.5 h-3.5 text-indigo-400"></i>
+                ${doc}
+              </span>
+            `).join('');
+            lucide.createIcons();
+          }
+
+          if (data.default_model) {
+            modelSelect.value = data.default_model;
+          }
+        } else if (data.status === "initializing") {
+          statusDot.className = "w-2 h-2 rounded-full bg-amber-400 animate-ping";
+          statusText.textContent = data.status_message || "Warming up engine...";
+          setTimeout(fetchStatus, 1500);
+        } else if (data.error) {
+          statusDot.className = "w-2 h-2 rounded-full bg-rose-500";
+          statusText.textContent = "Pipeline Error";
+        }
+      } catch (err) {
+        statusDot.className = "w-2 h-2 rounded-full bg-amber-400";
+        statusText.textContent = "Connecting to server...";
+        setTimeout(fetchStatus, 2000);
+      }
+    }
+    fetchStatus();
+
+    // Auto-expand textarea
+    queryInput.addEventListener('input', () => {
+      queryInput.style.height = 'auto';
+      queryInput.style.height = Math.min(queryInput.scrollHeight, 180) + 'px';
+      clearInputBtn.classList.toggle('hidden', !queryInput.value.trim());
+    });
+
+    clearInputBtn.addEventListener('click', () => {
+      queryInput.value = '';
+      queryInput.style.height = 'auto';
+      clearInputBtn.classList.add('hidden');
+      queryInput.focus();
+    });
+
+    // Keyboard handler: Enter to submit, Shift+Enter for newline
+    queryInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        queryForm.requestSubmit();
+      }
+    });
+
+    // Suggestion chips
+    document.querySelectorAll('.chip-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const text = btn.querySelector('span').textContent.trim();
+        queryInput.value = text;
+        queryForm.requestSubmit();
+      });
+    });
+
+    // Clear chat
+    clearBtn.addEventListener('click', () => {
+      if (confirm('Clear all conversation messages?')) {
+        messagesContainer.innerHTML = '';
+        welcomePanel.classList.remove('hidden');
+      }
+    });
+
+    // Scroll to bottom
+    function scrollToBottom() {
+      chatScroller.scrollTo({
+        top: chatScroller.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+
+    // Submit Question
+    queryForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const question = queryInput.value.trim();
+      if (!question) return;
+
+      // Hide welcome panel
+      welcomePanel.classList.add('hidden');
+
+      // Add user message to UI
+      appendUserMessage(question);
+      queryInput.value = '';
+      queryInput.style.height = 'auto';
+      clearInputBtn.classList.add('hidden');
+
+      // Show loader
+      loadingIndicator.classList.remove('hidden');
+      submitBtn.disabled = true;
+      scrollToBottom();
+
+      try {
+        const response = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: question,
+            model: modelSelect.value,
+            k: parseInt(topKSelect.value) || 3
+          })
+        });
+
+        const data = await response.json();
+        loadingIndicator.classList.add('hidden');
+        submitBtn.disabled = false;
+
+        if (response.ok) {
+          appendAIMessage(data);
+        } else {
+          appendErrorMessage(data.error || 'Failed to generate answer.');
+        }
+
+      } catch (err) {
+        loadingIndicator.classList.add('hidden');
+        submitBtn.disabled = false;
+        appendErrorMessage(`Network error: ${err.message}. Is server running?`);
+      }
+
+      scrollToBottom();
+      queryInput.focus();
+    });
+
+    // Append User Message Card
+    function appendUserMessage(text) {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = "flex items-start justify-end gap-3 animate-fadeIn";
+      msgDiv.innerHTML = `
+        <div class="max-w-2xl bg-indigo-600/90 text-white rounded-2xl rounded-tr-sm px-5 py-3.5 shadow-md">
+          <p class="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">${escapeHtml(text)}</p>
+        </div>
+        <div class="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0 mt-0.5">
+          <i data-lucide="user" class="w-4 h-4 text-indigo-300"></i>
+        </div>
+      `;
+      messagesContainer.appendChild(msgDiv);
+      lucide.createIcons();
+    }
+
+    // Append AI Response Card with Markdown & Sources Accordion
+    function appendAIMessage(data) {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = "flex items-start gap-3.5 animate-fadeIn";
+      
+      const parsedAnswer = marked.parse(data.answer || "No response received.");
+      const latencySec = (data.latency_ms / 1000).toFixed(1);
+      const sourcesCount = data.sources ? data.sources.length : 0;
+      const msgId = 'msg-' + Date.now();
+
+      let sourcesHtml = '';
+      if (sourcesCount > 0) {
+        sourcesHtml = `
+          <div class="mt-4 pt-4 border-t border-slate-800/80">
+            <button onclick="toggleSources('${msgId}')" class="flex items-center justify-between w-full text-xs font-semibold text-slate-400 hover:text-slate-200 transition py-1 group">
+              <span class="flex items-center gap-1.5">
+                <i data-lucide="book-open" class="w-3.5 h-3.5 text-indigo-400"></i>
+                Retrieved Context &amp; Sources (${sourcesCount} chunks)
+              </span>
+              <span class="flex items-center gap-1 text-[11px] text-indigo-400 group-hover:underline">
+                <span id="label-${msgId}">View Sources</span>
+                <i data-lucide="chevron-down" id="icon-${msgId}" class="w-3.5 h-3.5 transition-transform duration-200"></i>
+              </span>
+            </button>
+
+            <div id="sources-${msgId}" class="hidden mt-3 space-y-2.5">
+              ${data.sources.map((src, i) => `
+                <div class="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-300">
+                  <div class="flex items-center justify-between gap-2 mb-1.5 font-medium">
+                    <span class="text-indigo-300 flex items-center gap-1.5 truncate">
+                      <i data-lucide="file" class="w-3 h-3 shrink-0"></i>
+                      ${escapeHtml(src.source)}
+                    </span>
+                    ${src.page !== null && src.page !== undefined ? `<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] shrink-0">Page ${src.page}</span>` : ''}
+                  </div>
+                  <p class="text-slate-400 text-[11px] leading-relaxed font-mono bg-slate-900/60 p-2 rounded-lg border border-slate-800/60 line-clamp-4">
+                    ${escapeHtml(src.snippet)}
+                  </p>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      msgDiv.innerHTML = `
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center shrink-0 mt-0.5 shadow-glow">
+          <i data-lucide="bot" class="w-4 h-4 text-white"></i>
+        </div>
+        <div class="flex-1 bg-slate-900/70 border border-slate-800/90 rounded-2xl rounded-tl-sm p-4 sm:p-6 shadow-xl backdrop-blur-sm">
+          
+          <!-- Answer Header -->
+          <div class="flex items-center justify-between gap-2 mb-3 pb-2.5 border-b border-slate-800/60 text-xs text-slate-400">
+            <span class="font-semibold text-slate-300 flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              Answer Grounded in Documents
+            </span>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800/70 text-slate-400">⚡ ${latencySec}s</span>
+              <button onclick="copyToClipboard(this, \`${escapeJs(data.answer)}\`)" class="p-1 hover:text-slate-200 hover:bg-slate-800 rounded transition" title="Copy answer">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Parsed Markdown Answer -->
+          <div class="prose-custom text-sm sm:text-base leading-relaxed">
+            ${parsedAnswer}
+          </div>
+
+          <!-- Sources Accordion -->
+          ${sourcesHtml}
+
+        </div>
+      `;
+
+      messagesContainer.appendChild(msgDiv);
+      lucide.createIcons();
+    }
+
+    // Append Error Message Card
+    function appendErrorMessage(errorText) {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = "flex items-start gap-3.5 animate-fadeIn";
+      msgDiv.innerHTML = `
+        <div class="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/30 flex items-center justify-center shrink-0 mt-0.5">
+          <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+        </div>
+        <div class="flex-1 bg-rose-950/20 border border-rose-800/40 rounded-2xl p-4 sm:p-5 text-rose-200">
+          <div class="font-semibold text-sm mb-1">Failed to generate response</div>
+          <p class="text-xs text-rose-300/90 leading-relaxed font-mono">${escapeHtml(errorText)}</p>
+        </div>
+      `;
+      messagesContainer.appendChild(msgDiv);
+      lucide.createIcons();
+    }
+
+    // Toggle sources accordion
+    window.toggleSources = function(id) {
+      const panel = document.getElementById(`sources-${id}`);
+      const icon = document.getElementById(`icon-${id}`);
+      const label = document.getElementById(`label-${id}`);
+      if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        icon.classList.add('rotate-180');
+        label.textContent = 'Hide Sources';
+      } else {
+        panel.classList.add('hidden');
+        icon.classList.remove('rotate-180');
+        label.textContent = 'View Sources';
+      }
+    };
+
+    // Copy to clipboard helper
+    window.copyToClipboard = function(btn, text) {
+      navigator.clipboard.writeText(text).then(() => {
+        btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i>`;
+        lucide.createIcons();
+        setTimeout(() => {
+          btn.innerHTML = `<i data-lucide="copy" class="w-3.5 h-3.5"></i>`;
+          lucide.createIcons();
+        }, 2000);
+      });
+    };
+
+    // Helpers
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function escapeJs(str) {
+      if (!str) return '';
+      return String(str).replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+    }
+  </script>
+
+</body>
+</html>

@@ -95,33 +95,46 @@ def build_qa_chain(
 
     print(f"\n🤖 Building QA chain with model: '{model_name}'")
 
+    import os
+
     # -------------------------------------------------------------------------
-    # SELECT THE LLM BASED ON model_name
+    # SELECT THE LLM BASED ON model_name OR AVAILABLE API KEYS
     # -------------------------------------------------------------------------
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
     if model_name.startswith("ollama/"):
         # Ollama runs LLMs locally on your machine — no API key, no cost.
-        # Install Ollama from https://ollama.com and pull a model:
-        #   ollama pull llama3
-        #   ollama pull mistral
-        #
-        # The model_name format is "ollama/<model>" e.g. "ollama/llama3"
-        import os
         from langchain_ollama import OllamaLLM
 
-        # Extract the model tag after the "ollama/" prefix
         ollama_model = model_name.split("/", 1)[1]
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
         print(f"   Using local Ollama model '{ollama_model}' at {base_url}")
         llm = OllamaLLM(model=ollama_model, base_url=base_url)
 
+    elif model_name.startswith("gemini") or gemini_key:
+        # Google Gemini models via native langchain_google_genai
+        if not gemini_key:
+            raise ValueError(
+                "GEMINI_API_KEY not found in environment. Please add GEMINI_API_KEY=... to your .env file."
+            )
+
+        if model_name.startswith("gemini") and model_name not in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash"]:
+            gemini_model = model_name
+        else:
+            gemini_model = "gemini-flash-latest"
+
+        print(f"   Using Google Gemini model '{gemini_model}' (via Gemini API)")
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(
+            model=gemini_model,
+            google_api_key=gemini_key,
+            temperature=0,
+        )
+
     else:
         # OpenAI models (gpt-3.5-turbo, gpt-4, gpt-4o, etc.)
         # Requires OPENAI_API_KEY to be set in your .env file.
-        #
-        # temperature=0 means "deterministic" — the LLM always picks the highest
-        # probability token. For Q&A this is ideal; you want consistent, factual
-        # answers rather than creative variation.
         llm = ChatOpenAI(
             model_name=model_name,
             temperature=0,  # 0 = deterministic/factual, 1 = more creative/varied

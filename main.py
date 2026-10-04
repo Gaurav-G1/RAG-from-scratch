@@ -31,7 +31,16 @@
 #   python main.py --data-dir my_docs/ --index-path my_index/
 
 import os
+import sys
 import argparse
+
+# Ensure Unicode characters (box drawings, emojis) print reliably on Windows consoles
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # python-dotenv loads KEY=VALUE pairs from your .env file into os.environ.
 # This is the standard way to manage API keys without hardcoding them in source code.
@@ -84,8 +93,8 @@ Examples:
         "--model",
         default="gpt-3.5-turbo",
         help="LLM to use for answer generation. "
-             "Options: gpt-3.5-turbo, gpt-4, ollama/llama3, ollama/mistral. "
-             "Default: gpt-3.5-turbo",
+             "Options: gemini-1.5-flash, gemini-2.0-flash, gpt-3.5-turbo, gpt-4, ollama/llama3. "
+             "Default: gpt-3.5-turbo (or gemini-1.5-flash if GEMINI_API_KEY is set)",
     )
 
     parser.add_argument(
@@ -107,6 +116,19 @@ Examples:
         type=int,
         default=3,
         help="Number of chunks to retrieve per query (top-k). Default: 3.",
+    )
+
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Launch the interactive browser UI (HTML + Tailwind CSS).",
+    )
+
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for the browser web server (default: 8000).",
     )
 
     return parser.parse_args()
@@ -131,75 +153,88 @@ def run_pipeline(args):
     # and fill in your OPENAI_API_KEY before running with an OpenAI model.
     load_dotenv()
 
-    # Warn early if using OpenAI but the API key is missing
-    if not args.model.startswith("ollama/") and not os.getenv("OPENAI_API_KEY"):
+    # Warn early if an API key is missing and not using a local model
+    has_gemini = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+    has_openai = bool(os.getenv("OPENAI_API_KEY"))
+    if not args.model.startswith("ollama/") and not has_gemini and not has_openai:
         print(
-            "\n⚠️  WARNING: OPENAI_API_KEY is not set in your environment.\n"
-            "   Either:\n"
-            "     1. Copy .env.example to .env and add your API key, OR\n"
-            "     2. Use a local model with --model ollama/llama3\n"
+            "\n⚠️  WARNING: No API key found in your environment.\n"
+            "   Add GEMINI_API_KEY or OPENAI_API_KEY to your .env file,\n"
+            "   or use a local model with --model ollama/llama3\n"
         )
 
     # -------------------------------------------------------------------------
-    # STEP 1: LOAD DOCUMENTS
+    # LAUNCH WEB UI IF --web FLAG IS GIVEN
     # -------------------------------------------------------------------------
-    print("\n" + "─" * 60)
-    print("STEP 1/6: Loading documents")
-    print("─" * 60)
-    print(f"  Source directory: {args.data_dir}")
-
-    documents = load_documents(args.data_dir)
-
-    # If no documents were found, we can't continue — tell the user what to do
-    if not documents:
-        print(
-            "\n❌ No documents loaded. Please add .pdf, .txt, or .docx files to:\n"
-            f"   {args.data_dir}\n"
-            "\nThen re-run: python main.py"
+    if getattr(args, "web", False):
+        from server import start_server
+        start_server(
+            port=args.port,
+            index_path=args.index_path,
+            data_dir=args.data_dir,
+            model=args.model,
         )
         return
 
     # -------------------------------------------------------------------------
-    # STEP 2: CHUNK DOCUMENTS
+    # STEP 3 FIRST: LOAD EMBEDDING MODEL
     # -------------------------------------------------------------------------
     print("\n" + "─" * 60)
-    print("STEP 2/6: Chunking documents")
-    print("─" * 60)
-
-    chunks = chunk_documents(
-        documents,
-        chunk_size=500,   # ~1-2 short paragraphs per chunk
-        chunk_overlap=50, # 50 chars of overlap to preserve context at boundaries
-    )
-
-    # -------------------------------------------------------------------------
-    # STEP 3: LOAD EMBEDDING MODEL
-    # -------------------------------------------------------------------------
-    print("\n" + "─" * 60)
-    print("STEP 3/6: Loading embedding model")
+    print("STEP: Loading embedding model")
     print("─" * 60)
     print("  Model: all-MiniLM-L6-v2 (free, local, no API key needed)")
 
     embedding_model = get_embedding_model("all-MiniLM-L6-v2")
 
-    # DEMO: Show what an embedding vector looks like (educational, not required)
-    if args.debug and chunks:
-        embed_text(chunks[0].page_content[:100], embedding_model)
-
     # -------------------------------------------------------------------------
-    # STEP 4: BUILD OR LOAD VECTOR STORE
+    # CHECK FOR EXISTING FAISS VECTOR STORE
     # -------------------------------------------------------------------------
-    print("\n" + "─" * 60)
-    print("STEP 4/6: Building / loading FAISS vector store")
-    print("─" * 60)
-    print(f"  Index location: {args.index_path}/")
-    print(f"  Tip: Delete '{args.index_path}/' to force a full rebuild.")
+    index_file = os.path.join(args.index_path, "index.faiss")
+    if os.path.exists(index_file):
+        print("\n" + "─" * 60)
+        print("STEP: Loading existing FAISS vector store")
+        print("─" * 60)
+        print(f"  Index location: {args.index_path}/")
+        print(f"  Tip: Delete '{args.index_path}/' to force a full rebuild.")
+        from src.vector_store import load_vector_store
+        vector_store = load_vector_store(args.index_path, embedding_model)
+    else:
+        # STEP 1: LOAD DOCUMENTS
+        print("\n" + "─" * 60)
+        print("STEP 1/6: Loading documents")
+        print("─" * 60)
+        print(f"  Source directory: {args.data_dir}")
 
-    vector_store = get_or_create_vector_store(
-        chunks=chunks,
-        embedding_model=embedding_model,
-        path=args.index_path,
-    )
+        documents = load_documents(args.data_dir)
+
+        if not documents:
+            print(
+                "\n❌ No documents loaded. Please add .pdf, .txt, or .docx files to:\n"
+                f"   {args.data_dir}\n"
+                "\nThen re-run: python main.py"
+            )
+            return
+
+        # STEP 2: CHUNK DOCUMENTS
+        print("\n" + "─" * 60)
+        print("STEP 2/6: Chunking documents")
+        print("─" * 60)
+
+        chunks = chunk_documents(
+            documents,
+            chunk_size=500,
+            chunk_overlap=50,
+        )
+
+        # BUILD AND SAVE VECTOR STORE
+        print("\n" + "─" * 60)
+        print("STEP 4/6: Building FAISS vector store")
+        print("─" * 60)
+        vector_store = get_or_create_vector_store(
+            chunks=chunks,
+            embedding_model=embedding_model,
+            path=args.index_path,
+        )
 
     # -------------------------------------------------------------------------
     # STEP 5: SET UP RETRIEVER
